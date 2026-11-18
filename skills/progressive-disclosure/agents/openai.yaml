@@ -1,0 +1,14 @@
+interface:
+  display_name: Progressive Disclosure
+  short_description: Návrh a kontrola webového UI ze screenshotů i kódu
+  default_prompt: Použij $progressive-disclosure k návrhu nebo kontrole tohoto webového
+    UI ze screenshotů a kódu. Navrhni konkrétní změny a rozliš ověřené nálezy od hypotéz.
+  icon_small: assets/icon.svg
+  icon_large: assets/icon.svg
+policy:
+  products:
+  - chatgpt
+  - codex
+  - api
+  - atlas
+  allow_implicit_invocation: true

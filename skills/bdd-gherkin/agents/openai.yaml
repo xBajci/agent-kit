@@ -1,0 +1,4 @@
+interface:
+  display_name: "BDD and Gherkin"
+  short_description: "Create and review clear, domain-focused BDD scenarios"
+  default_prompt: "Use $bdd-gherkin to create or review scenarios based on the domain rules and the project's scenario-language conventions."

@@ -1,0 +1,292 @@
+#!/usr/bin/env python3
+"""Jev: bounded routing and loop decisions for Claude agents, via TypeSafe.
+
+Two modes, both read one JSON object on stdin and print one JSON object:
+
+  jev route   classify a task and pick its starting lane
+  jev next    after an implementation cycle, pick the next action
+
+Add --dry-run to print the request body instead of calling the API.
+Hard facts (failed checks, attempt limits) are decided here in code and
+never sent to Jev. Only the remaining judgment goes to the model.
+
+Auth: TYPESAFE_API_KEY from the environment. Never printed.
+"""
+
+import json
+import os
+import sys
+import time
+import urllib.error
+import urllib.request
+
+API_URL = "https://api.typesafe.ai/v1/systemone"
+MODEL = "jev-latest"
+
+# Lane ladder. The caller forces the model per spawn (Agent tool `model`).
+LANES = ["SMALL", "MEDIUM", "HIGH", "ESCALATE"]
+LANE_MODEL = {"SMALL": "haiku", "MEDIUM": "sonnet", "HIGH": "opus", "ESCALATE": "fable"}
+# Every lane uses the same agent; only the model changes per spawn.
+LANE_AGENT = {lane: "implementer" for lane in LANES}
+
+CONFIDENCE_THRESHOLD = 0.6  # ASSUMPTION: tune on real runs
+MAX_ATTEMPTS_PER_LANE = 2  # ASSUMPTION: failed attempts before moving up a lane
+MAX_TEXT = 6000  # chars per free-text field sent as state
+
+ACTIONS = {
+    "CONTINUE": "Progress is real and more implementation work remains in the same lane.",
+    "RETRY": "The last attempt failed or went wrong, and one more try in the same lane is likely to fix it.",
+    "VERIFY": "The work may be done, but evidence is missing or too thin to judge completion.",
+    "ESCALATE": "The current lane is not enough: repeated failure, architectural uncertainty, or security-sensitive code.",
+    "COMPLETE": "The requested behaviour is implemented, all checks pass, and the diff matches the requested scope.",
+    "STOP": "The work is blocked on something only the user can resolve: a missing decision, access, or requirement.",
+}
+
+
+def fail(msg, code=2):
+    print(json.dumps({"error": msg}), file=sys.stderr)
+    sys.exit(code)
+
+
+def clip(value):
+    if isinstance(value, str) and len(value) > MAX_TEXT:
+        return value[:MAX_TEXT] + " …[truncated]"
+    return value
+
+
+def lane_up(lane, steps=1):
+    return LANES[min(LANES.index(lane) + steps, len(LANES) - 1)]
+
+
+def lane_at_least(lane, floor):
+    return lane if LANES.index(lane) >= LANES.index(floor) else floor
+
+
+def call_api(body):
+    key = os.environ.get("TYPESAFE_API_KEY")
+    if not key:
+        # Optional dependency: report and let the caller use its fallback rule.
+        print(json.dumps({"unavailable": "TYPESAFE_API_KEY is not set", "source": "none"}))
+        sys.exit(0)
+    data = json.dumps(body).encode()
+    req = urllib.request.Request(
+        API_URL,
+        data=data,
+        headers={
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+            "User-Agent": "jev-cli/1",
+        },
+    )
+    for attempt in range(4):
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return json.load(resp)
+        except urllib.error.HTTPError as e:
+            if e.code in (429, 529) and attempt < 3:
+                time.sleep(2**attempt)
+                continue
+            detail = e.read().decode(errors="replace")[:500]
+            fail(f"TypeSafe HTTP {e.code}: {detail}")
+        except urllib.error.URLError as e:
+            fail(f"TypeSafe unreachable: {e.reason}")
+
+
+def route_body(inp):
+    state = {
+        "task": clip(inp["task"]),
+        "context": clip(inp.get("context", "")),
+    }
+    return {
+        "model": MODEL,
+        "state": state,
+        "questions": {
+            "complexity": {
+                "type": "choice",
+                "instructions": "How demanding is the software-engineering `task` for a coding agent, given `context`?",
+                "criteria": {
+                    "SMALL": "One obvious edit: a typo, a rename, a constant, a one-file change with a known answer.",
+                    "MEDIUM": "A contained change across a few files with a clear approach and existing patterns to follow.",
+                    "HIGH": "Many files, subtle logic, concurrency, data migration, or an unclear bug cause.",
+                    "ESCALATE": "Architecture decisions, security-critical code, or a problem with no clear approach yet.",
+                },
+            },
+            "security_sensitive": {
+                "type": "noul",
+                "instructions": "Does the `task` touch security-sensitive code: auth, credentials, permissions, crypto, input validation, or personal data?",
+            },
+            "architectural_uncertainty": {
+                "type": "noul",
+                "instructions": "Does the `task` leave an open architecture or design decision that must be made before implementation?",
+            },
+        },
+    }
+
+
+def route_policy(inp, resp):
+    a = resp["answers"]
+    c = a["complexity"]
+    lane = c["choice"]
+    notes = []
+    sec = a["security_sensitive"]["noul"]
+    arch = a["architectural_uncertainty"]["noul"]
+    if c["confidence"] < CONFIDENCE_THRESHOLD:
+        lane = lane_up(lane)
+        notes.append("low confidence: moved one lane up")
+    if sec >= 0.5:
+        lane = lane_at_least(lane, "HIGH")
+        notes.append("security-sensitive: lane at least HIGH, reviewer required")
+    if arch >= 0.5:
+        notes.append("architectural uncertainty: consult advisor or planner first")
+    return {
+        "decision": "ROUTE",
+        "lane": lane,
+        "agent": LANE_AGENT[lane],
+        "model": LANE_MODEL[lane],
+        "confidence": round(c["confidence"], 3),
+        "probabilities": {k: round(v, 3) for k, v in c["probabilities"].items()},
+        "security_sensitive": round(sec, 3),
+        "architectural_uncertainty": round(arch, 3),
+        "notes": notes,
+    }
+
+
+def next_prefilter(inp):
+    """Decide in code whatever the evidence already settles. None means ask Jev."""
+    lane = inp["lane"]
+    checks = inp.get("checks", [])
+    failed = [c for c in checks if c.get("exit_code") != 0]
+    attempt = int(inp.get("attempt", 1))
+    if not checks:
+        return "VERIFY", lane, "no deterministic checks were run"
+    if failed and attempt >= MAX_ATTEMPTS_PER_LANE:
+        if lane == LANES[-1]:
+            return "STOP", lane, f"checks still fail after {attempt} attempts in the top lane"
+        return "ESCALATE", lane_up(lane), f"checks still fail after {attempt} attempts in lane {lane}"
+    return None
+
+
+def next_body(inp, allowed):
+    state = {
+        "task": clip(inp["task"]),
+        "lane": inp["lane"],
+        "attempt": inp.get("attempt", 1),
+        "checks": inp.get("checks", []),
+        "files_changed": inp.get("files_changed", []),
+        "diff_summary": clip(inp.get("diff_summary", "")),
+        "agent_report": clip(inp.get("agent_report", "")),
+    }
+    return {
+        "model": MODEL,
+        "state": state,
+        "questions": {
+            "next_action": {
+                "type": "choice",
+                "instructions": "Given the `task`, the `checks` results, the `diff_summary` and the `agent_report`, what should the orchestrator do next?",
+                "criteria": {k: ACTIONS[k] for k in allowed},
+            },
+            "behaviour_done": {
+                "type": "noul",
+                "instructions": "Do `diff_summary` and `agent_report` show that every behaviour the `task` requested is implemented?",
+            },
+            "scope_matches": {
+                "type": "noul",
+                "instructions": "Does the change stay inside the requested `task`, with no unrequested features, refactors or config?",
+            },
+            "security_sensitive": {
+                "type": "noul",
+                "instructions": "Does the change touch security-sensitive code: auth, credentials, permissions, crypto, input validation, or personal data?",
+            },
+        },
+    }
+
+
+def next_allowed(inp):
+    failed = any(c.get("exit_code") != 0 for c in inp.get("checks", []))
+    allowed = list(ACTIONS)
+    if failed:
+        allowed.remove("COMPLETE")  # never complete with a failing check
+    if inp["lane"] == LANES[-1]:
+        allowed.remove("ESCALATE")
+    return allowed
+
+
+def next_policy(inp, resp):
+    a = resp["answers"]
+    na = a["next_action"]
+    action, lane = na["choice"], inp["lane"]
+    done, scope, sec = (a[k]["noul"] for k in ("behaviour_done", "scope_matches", "security_sensitive"))
+    notes = []
+    low = na["confidence"] < CONFIDENCE_THRESHOLD
+    if action == "COMPLETE" and (done < 0.5 or scope < 0.5):
+        action = "CONTINUE"
+        notes.append("COMPLETE rejected: behaviour not shown done or scope drift")
+    if low and action != "VERIFY":  # missing evidence is not fixed by a bigger model
+        if action == "COMPLETE":
+            action = "VERIFY"
+            notes.append("low confidence on COMPLETE: get an advisor verdict")
+        elif lane == LANES[-1]:
+            action = "STOP"
+            notes.append("low confidence in the top lane: report to the user")
+        else:
+            action = "ESCALATE"
+            notes.append("low confidence: escalate one lane")
+    if sec >= 0.5:
+        notes.append("security-sensitive change: reviewer required before COMPLETE")
+        if LANES.index(lane) < LANES.index("HIGH") and action in ("CONTINUE", "RETRY"):
+            action = "ESCALATE"
+    if action == "ESCALATE":
+        lane = lane_at_least(lane_up(lane), "HIGH") if sec >= 0.5 else lane_up(lane)
+    return {
+        "decision": action,
+        "lane": lane,
+        "agent": LANE_AGENT[lane],
+        "model": LANE_MODEL[lane],
+        "confidence": round(na["confidence"], 3),
+        "probabilities": {k: round(v, 3) for k, v in na["probabilities"].items()},
+        "behaviour_done": round(done, 3),
+        "scope_matches": round(scope, 3),
+        "security_sensitive": round(sec, 3),
+        "notes": notes,
+        "source": "jev",
+    }
+
+
+def main():
+    args = sys.argv[1:]
+    dry = "--dry-run" in args
+    args = [x for x in args if x != "--dry-run"]
+    if len(args) != 1 or args[0] not in ("route", "next"):
+        fail("usage: jev route|next [--dry-run] < input.json", 64)
+    try:
+        inp = json.load(sys.stdin, strict=False)
+    except json.JSONDecodeError as e:
+        fail(f"stdin is not valid JSON: {e}", 64)
+    if not isinstance(inp, dict) or not inp.get("task"):
+        fail("input needs a non-empty 'task' field", 64)
+
+    if args[0] == "route":
+        body = route_body(inp)
+        if dry:
+            print(json.dumps(body, indent=2, ensure_ascii=False))
+            return
+        out = route_policy(inp, call_api(body))
+    else:
+        if inp.get("lane") not in LANES:
+            fail(f"input needs 'lane', one of {LANES}", 64)
+        pre = next_prefilter(inp)
+        if pre:
+            action, lane, why = pre
+            out = {"decision": action, "lane": lane, "agent": LANE_AGENT[lane],
+        "model": LANE_MODEL[lane], "notes": [why], "source": "code"}
+        else:
+            body = next_body(inp, next_allowed(inp))
+            if dry:
+                print(json.dumps(body, indent=2, ensure_ascii=False))
+                return
+            out = next_policy(inp, call_api(body))
+    print(json.dumps(out, ensure_ascii=False))
+
+
+if __name__ == "__main__":
+    main()

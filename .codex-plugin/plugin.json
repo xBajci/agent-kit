@@ -1,0 +1,20 @@
+{
+  "name": "xbajci",
+  "version": "0.1.0",
+  "description": "Personal agents, skills and guardrails on top of Matt Pocock's skills.",
+  "author": { "name": "Martin Bajcar", "url": "https://github.com/xBajci" },
+  "homepage": "https://github.com/xBajci/agent-kit",
+  "repository": "https://github.com/xBajci/agent-kit",
+  "license": "MIT",
+  "keywords": ["agents", "skills", "workflow", "security", "bdd"],
+  "skills": "./skills/",
+  "hooks": {},
+  "interface": {
+    "displayName": "xbajci agent kit",
+    "shortDescription": "Ship specs with verification, security review and a finish step",
+    "longDescription": "Skills for shipping a spec ticket by ticket with per-ticket verification, security review and escalation, plus security audits, BDD scenarios, progressive disclosure and memory review.",
+    "developerName": "Martin Bajcar",
+    "category": "Developer Tools",
+    "capabilities": ["Ship a spec", "Security audit", "BDD scenarios"]
+  }
+}

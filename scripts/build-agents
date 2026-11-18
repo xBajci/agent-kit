@@ -1,0 +1,120 @@
+#!/usr/bin/env python3
+"""Generate Claude and Codex agents from src/agents/*.md and src/runtime.md."""
+
+import argparse
+import json
+import sys
+import tomllib
+from pathlib import Path
+
+try:
+    import yaml
+except ImportError:
+    sys.exit("PyYAML is required: pip install pyyaml")
+
+ROOT = Path(__file__).resolve().parents[1]
+RUNTIME_POINTER = "Before working, apply the runtime rules below."
+EFFORTS = {"low", "medium", "high", "xhigh", "max"}
+HEADER = "Generated from src/agents/{name}.md and src/runtime.md. Edit those, then run scripts/build-agents."
+
+
+def split(source):
+    raw = source.read_text(encoding="utf-8")
+    if not raw.startswith("---\n"):
+        raise ValueError(f"{source}: missing YAML frontmatter")
+    parts = raw[4:].split("\n---\n", 1)
+    if len(parts) != 2:
+        raise ValueError(f"{source}: unterminated YAML frontmatter")
+    front, body = parts
+    meta = yaml.safe_load(front)
+    if not isinstance(meta, dict):
+        raise ValueError(f"{source}: frontmatter is not a mapping")
+    if meta.get("name") != source.stem or not str(meta.get("description", "")).strip():
+        raise ValueError(f"{source}: invalid name or description")
+    if meta.get("effort") not in EFFORTS or not body.strip():
+        raise ValueError(f"{source}: invalid effort or empty instructions")
+    if body.count(RUNTIME_POINTER) != 1:
+        raise ValueError(f"{source}: expected exactly one runtime pointer")
+    return front, meta, body
+
+
+def render_claude(source, runtime):
+    front, _, body = split(source)
+    body = body.replace(RUNTIME_POINTER, runtime.strip())
+    note = f"<!-- {HEADER.format(name=source.stem)} -->\n"
+    return f"---\n{front}\n---\n{note}{body.rstrip()}\n"
+
+
+def render_codex(source, runtime):
+    _, meta, body = split(source)
+    body = body.replace(RUNTIME_POINTER, runtime.strip())
+    values = {
+        "name": meta["name"],
+        "description": " ".join(str(meta["description"]).split()),
+        # Claude model aliases do not map to Codex models; Codex keeps its own default.
+        "model_reasoning_effort": meta["effort"],
+        "developer_instructions": body.strip() + "\n",
+    }
+    fields = []
+    for key, value in values.items():
+        if key == "developer_instructions" and "'''" not in value:
+            fields.append(f"{key} = '''\n{value}'''\n")
+        else:
+            fields.append(f"{key} = {json.dumps(value, ensure_ascii=False)}\n")
+    text = f"# {HEADER.format(name=source.stem)}\n" + "".join(fields)
+    if tomllib.loads(text) != values:
+        raise ValueError(f"{source}: generated TOML failed round-trip validation")
+    return text
+
+
+def build(root=ROOT):
+    root = Path(root)
+    runtime = (root / "src/runtime.md").read_text(encoding="utf-8")
+    out = {}
+    for source in sorted((root / "src/agents").glob("*.md")):
+        out[Path("agents") / source.name] = render_claude(source, runtime)
+        out[Path("codex/agents") / f"{source.stem}.toml"] = render_codex(source, runtime)
+    return out
+
+
+def write(root=ROOT, check=False):
+    root = Path(root)
+    stale = []
+    built = build(root)
+    for rel, text in built.items():
+        path = root / rel
+        if path.exists() and path.read_text(encoding="utf-8") == text:
+            continue
+        stale.append(str(rel))
+        if not check:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf-8")
+    # Generated files whose source was deleted or renamed. Only files carrying the marker.
+    marker = HEADER.split("{")[0]
+    for pattern in ("agents/*.md", "codex/agents/*.toml"):
+        for path in sorted(root.glob(pattern)):
+            rel = path.relative_to(root)
+            if rel in built or marker not in path.read_text(encoding="utf-8"):
+                continue
+            stale.append(str(rel))
+            if not check:
+                path.unlink()
+    return sorted(stale)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check", action="store_true", help="Fail if generated files are stale")
+    args = parser.parse_args()
+    stale = write(check=args.check)
+    if args.check and stale:
+        sys.exit("Stale, run scripts/build-agents: " + ", ".join(stale))
+    count = len(list((ROOT / "src/agents").glob("*.md")))
+    print(("Checked" if args.check else "Built") + f" {count} agents.")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (KeyError, ValueError, OSError, yaml.YAMLError) as error:
+        sys.exit(str(error))

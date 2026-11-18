@@ -1,0 +1,13 @@
+{
+  "name": "agent-kit",
+  "owner": { "name": "Martin Bajcar", "url": "https://github.com/xBajci" },
+  "description": "Martin Bajcar's agent kit.",
+  "plugins": [
+    {
+      "name": "xbajci",
+      "source": "./",
+      "description": "Personal agents, skills and guardrails on top of Matt Pocock's skills.",
+      "category": "engineering"
+    }
+  ]
+}
