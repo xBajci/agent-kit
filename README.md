@@ -135,6 +135,7 @@ asks before it changes them. The memory directory defaults to `~/.agents/memory`
 | [mattpocock-skills](https://github.com/mattpocock/skills) | Spec, tickets, TDD and code review |
 | [episodic-memory](https://github.com/obra/episodic-memory) | Session history for `memory-review` |
 | [taste-skill](https://github.com/Leonxlnx/taste-skill) | UI art direction |
+| [postgres-best-practices](https://github.com/neondatabase/postgres-skills) | Postgres schema, index and query rules |
 | [browser-harness](https://github.com/browser-use/browser-harness) | Browser verification, see [docs/browser-tools.md](docs/browser-tools.md) |
 
 ## Development

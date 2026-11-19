@@ -1,6 +1,6 @@
 ---
 name: setup
-description: "Set up the xbajci plugin: offer to install the recommended companions (Matt Pocock's skills, episodic-memory, taste-skill, browser-harness), install the agents for Codex, and prepare the current repo for local-markdown tickets."
+description: "Set up the xbajci plugin: offer to install the recommended companions (Matt Pocock's skills, episodic-memory, taste-skill, postgres-best-practices, browser-harness), install the agents for Codex, and prepare the current repo for local-markdown tickets."
 disable-model-invocation: true
 ---
 
@@ -27,6 +27,7 @@ installed. For each companion below that is missing, ask
 | `mattpocock-skills` | The base workflow: grill, to-spec, to-tickets, tdd, code-review. `ship-spec` needs it. | `claude plugin marketplace add anthropics/claude-plugins-official` then `claude plugin install mattpocock-skills@claude-plugins-official` | `codex plugin marketplace add anthropics/claude-plugins-official` then `codex plugin add mattpocock-skills@claude-plugins-official` |
 | `episodic-memory` | Searchable history of past sessions. `memory-review` reads it. | `claude plugin marketplace add obra/superpowers-marketplace` then `claude plugin install episodic-memory@superpowers-marketplace` | `codex plugin marketplace add obra/superpowers-marketplace` then `codex plugin add episodic-memory@superpowers-marketplace` |
 | `taste-skill` | Art direction for UI work instead of generic AI pages. | `claude plugin marketplace add Leonxlnx/taste-skill` then `claude plugin install taste-skill@taste-skill` | `codex plugin marketplace add Leonxlnx/taste-skill` then `codex plugin add taste-skill@taste-skill` |
+| `postgres-best-practices` | Neon's Postgres rules for schema design, indexes and queries. | `claude plugin marketplace add neondatabase/postgres-skills` then `claude plugin install postgres-best-practices@postgres-skills` | `codex plugin marketplace add neondatabase/postgres-skills` then `codex plugin add postgres-best-practices@postgres-skills` |
 | browser-harness | Fast browser verification in one script. `verifier` prefers it. | Follow https://github.com/browser-use/browser-harness/blob/main/install.md | same |
 
 Skip a marketplace add when `claude plugin marketplace list` / `codex plugin
