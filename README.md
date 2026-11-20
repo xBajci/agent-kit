@@ -126,7 +126,10 @@ agent's report to `api.typesafe.ai`. Without the key, `jev` returns
 
 **memory-review.** Writes to `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md`. It
 asks before it changes them. The memory directory defaults to `~/.agents/memory`
-(`MEMORY_REVIEW_DIR`).
+(`MEMORY_REVIEW_DIR`). If `~/.codex/AGENTS.md` is a symlink to a shared file
+such as `~/.agents/AGENTS.md`, and `CLAUDE.md` imports that file with
+`@~/.agents/AGENTS.md`, the memory is written once into the shared file and
+removed from `CLAUDE.md`.
 
 ## Recommended companions
 

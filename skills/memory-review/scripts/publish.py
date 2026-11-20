@@ -2,9 +2,15 @@
 """Make the shared memory visible to each agent. Idempotent: it replaces
 only the block between the BEGIN/END markers.
 
-- Claude Code (~/.claude/CLAUDE.md): @import of USER.md (Claude reads it live).
 - Codex (~/.codex/AGENTS.md) and other agents without @import: USER.md is
   copied inline, because AGENTS.md has no import syntax.
+- Claude Code (~/.claude/CLAUDE.md): @import of USER.md (Claude reads it live),
+  unless CLAUDE.md already @imports an inline target. Then the block is
+  removed from CLAUDE.md, so Claude does not load the memory twice.
+
+Shared layout: ~/.codex/AGENTS.md is a symlink to ~/.agents/AGENTS.md and
+CLAUDE.md has the line `@~/.agents/AGENTS.md`. Targets that resolve to the
+same file are written once, through the symlink.
 
 Extra inline targets: MEMORY_REVIEW_INLINE_TARGETS="/path/A.md:/path/B.md"
 Only files whose folder already exists are touched.
@@ -31,32 +37,72 @@ def block(body):
     return f"{BEGIN}\n## Shared agent memory\n\n{body}\n{END}"
 
 
+PAT = re.compile(re.escape(BEGIN) + r".*?" + re.escape(END), re.S)
+
+
 def put(path, content):
     path = os.path.expanduser(path)
     if not os.path.isdir(os.path.dirname(path)):
         return f"skip {path} (folder missing)"
     old = open(path).read() if os.path.exists(path) else ""
-    pat = re.compile(re.escape(BEGIN) + r".*?" + re.escape(END), re.S)
-    new = pat.sub(lambda _: content, old) if pat.search(old) else (old.rstrip() + "\n\n" + content + "\n").lstrip()
+    new = PAT.sub(lambda _: content, old) if PAT.search(old) else (old.rstrip() + "\n\n" + content + "\n").lstrip()
     if new != old:
+        # open() follows a symlink, so a linked target updates the shared file and the link stays.
         open(path, "w").write(new)
         return f"updated {path}"
     return f"unchanged {path}"
+
+
+def drop(path):
+    path = os.path.expanduser(path)
+    old = open(path).read() if os.path.exists(path) else ""
+    new = re.sub(r"\n*" + PAT.pattern + r"\n*", "\n\n", old, flags=re.S).strip() + "\n"
+    if PAT.search(old):
+        open(path, "w").write(new)
+        return f"removed block from {path} (it imports the shared file)"
+    return f"unchanged {path} (it imports the shared file)"
+
+
+def imports(path):
+    """Real paths of the files that `path` pulls in with an @import line."""
+    path = os.path.expanduser(path)
+    if not os.path.exists(path):
+        return set()
+    found = set()
+    for line in open(path):
+        m = re.fullmatch(r"@(\S+)", line.strip())
+        if m:
+            target = os.path.join(os.path.dirname(path), os.path.expanduser(m.group(1)))
+            found.add(os.path.realpath(target))
+    return found
 
 
 def main():
     user = os.path.join(MEM, "USER.md")
     if not os.path.exists(user):
         sys.exit(f"{user} missing - run the memory-review skill first.")
-    print(put("~/.claude/CLAUDE.md", block(f"@{MEM_TILDE}/USER.md\n\n{PROJECT_RULE}")))
 
     text = open(user).read().strip()
     if len(text) > INLINE_CAP:
         text = text[:INLINE_CAP] + f"\n…[cut - full file: {MEM_TILDE}/USER.md]"
     inline = block(f"{text}\n\n{PROJECT_RULE}")
     targets = ["~/.codex/AGENTS.md"] + [t for t in os.environ.get("MEMORY_REVIEW_INLINE_TARGETS", "").split(":") if t]
+    written = set()
     for t in targets:
-        print(put(t, inline))
+        real = os.path.realpath(os.path.expanduser(t))
+        if real in written:
+            print(f"skip {os.path.expanduser(t)} (same file as an earlier target)")
+            continue
+        result = put(t, inline)
+        print(result)
+        if not result.startswith("skip"):
+            written.add(real)
+
+    claude = "~/.claude/CLAUDE.md"
+    if imports(claude) & written:
+        print(drop(claude))
+    else:
+        print(put(claude, block(f"@{MEM_TILDE}/USER.md\n\n{PROJECT_RULE}")))
 
 
 if __name__ == "__main__":

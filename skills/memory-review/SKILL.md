@@ -26,13 +26,13 @@ The read-only steps (`digest --no-sync`, `--session`) work inside the sandbox.
 
 | File | Holds | Limit |
 |---|---|---|
-| `USER.md` | Profile, preferences, tools and services, corrections. Loaded into EVERY session: Claude Code via `@import` in `~/.claude/CLAUDE.md`, Codex via a copy in `~/.codex/AGENTS.md` | 80 lines incl. headings |
+| `USER.md` | Profile, preferences, tools and services, corrections. Loaded into EVERY session: Codex via a copy in `~/.codex/AGENTS.md`; Claude Code via `@import` in `~/.claude/CLAUDE.md`, or through that copy when `CLAUDE.md` imports the shared file (see `publish.py`) | 80 lines incl. headings |
 | `projects/<key>.md` | Facts, decisions, gotchas, conventions for one project. Read when an agent works there | 120 lines |
 | `projects/general.md` | Same, for work in the home folder or scratch folders (no repo) | 120 lines |
 | `SKILL-IDEAS.md` | Proposed skills with evidence. Never create the skill itself | 30 entries |
 
 Create other `projects/<key>.md` files only when you have something to put in them.
-Because Codex has no copy of `~/.claude/CLAUDE.md`, a rule that is only there may still belong in USER.md.
+Codex does not read `~/.claude/CLAUDE.md`. A rule that is only there may still belong in USER.md, unless the shared `~/.agents/AGENTS.md` already has it.
 
 ## Steps
 
@@ -46,7 +46,7 @@ Because Codex has no copy of `~/.claude/CLAUDE.md`, a rule that is only there ma
 5. **Edit the files.** Merge into existing bullets. Fix bullets that are now wrong. Delete bullets that no longer hold. No duplicates. End each new or changed bullet with the local date of the exchange it came from, `(YYYY-MM-DD)` — the digest shows it. Write in English, terse. Stay under the limits: drop the least useful bullet before you add one.
 6. **Skill ideas.** A multi-step procedure that appears in 2+ sessions gets an entry, or a higher count if an entry with the same purpose exists. Never write a skill.
 7. `digest --finish` — copies USER.md to the agents, commits MEM, saves the watermark. If it fails, report the error; do not retry by hand.
-   - Before the first `--finish` in a session, ask. It runs `scripts/publish.py`, which edits `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md` and any file in `MEMORY_REVIEW_INLINE_TARGETS` (only where the folder exists). Show the user that list and ask "Update these files?" On anything but a yes, run `digest --finish --no-publish` instead.
+   - Before the first `--finish` in a session, ask. It runs `scripts/publish.py`, which edits `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md` (or the file it links to, such as `~/.agents/AGENTS.md`) and any file in `MEMORY_REVIEW_INLINE_TARGETS` (only where the folder exists). Show the user that list and ask "Update these files?" On anything but a yes, run `digest --finish --no-publish` instead.
 8. **Report** in a few lines: what changed per file, new skill ideas, anything you could not read.
 
 ## What to keep
