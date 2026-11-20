@@ -191,20 +191,23 @@ def local_date(ts):
     return local(ts)
 
 
-def _open(path):
-    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+def _open(path, mode="ro"):
+    con = sqlite3.connect(f"file:{path}?mode={mode}", uri=True)
     con.execute("SELECT 1 FROM exchanges LIMIT 1")
     return con
 
 
 def _open_copy():
-    """Sandboxes (e.g. Codex) may forbid the -shm file next to the DB. Read a copy."""
+    """Read a private copy when the DB itself will not open read-only: sandboxes
+    (e.g. Codex) may forbid the -shm file next to it, and a WAL DB that no other
+    process holds open has no -shm, which mode=ro cannot create. Nobody else
+    uses the copy, so open it read-write and let SQLite create its -shm."""
     import shutil, tempfile
     tmp = tempfile.mkdtemp(prefix="memory-review-")
     for suf in ("", "-wal"):
         if os.path.exists(DB + suf):
             shutil.copy2(DB + suf, os.path.join(tmp, "db.sqlite" + suf))
-    return _open(os.path.join(tmp, "db.sqlite"))
+    return _open(os.path.join(tmp, "db.sqlite"), mode="rw")
 
 
 def connect():

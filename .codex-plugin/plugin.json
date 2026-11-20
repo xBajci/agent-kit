@@ -1,6 +1,6 @@
 {
   "name": "xbajci",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Personal agents, skills and guardrails on top of Matt Pocock's skills.",
   "author": { "name": "Martin Bajcar", "url": "https://github.com/xBajci" },
   "homepage": "https://github.com/xBajci/agent-kit",
