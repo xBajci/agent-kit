@@ -110,6 +110,7 @@ git worktrees, and a worktree only contains tracked files.
 | Hook | Event | What it does |
 |---|---|---|
 | `session-rules.sh` | SessionStart | Adds rules: reply in Czech or English, ask one question at a time |
+| `memory-publish.sh` | SessionStart | After a plugin update, points the memory block at the new version (`publish.py --if-stale`). Silent; does nothing before the first memory-review publish |
 | `deny-browser-attach.sh` | PreToolUse (Bash) | Blocks browser-attach flags and kill commands aimed at a real browser |
 
 Codex does not load the hooks.
@@ -129,7 +130,8 @@ asks before it changes them. The memory directory defaults to `~/.agents/memory`
 (`MEMORY_REVIEW_DIR`). If `~/.codex/AGENTS.md` is a symlink to a shared file
 such as `~/.agents/AGENTS.md`, and `CLAUDE.md` imports that file with
 `@~/.agents/AGENTS.md`, the memory is written once into the shared file and
-removed from `CLAUDE.md`.
+removed from `CLAUDE.md`. After a plugin update, the `memory-publish.sh` hook
+refreshes the block on the next Claude session start.
 
 ## Recommended companions
 

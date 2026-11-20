@@ -14,6 +14,11 @@ same file are written once, through the symlink.
 
 Extra inline targets: MEMORY_REVIEW_INLINE_TARGETS="/path/A.md:/path/B.md"
 Only files whose folder already exists are touched.
+
+--if-stale: publish only when an existing block points at another plugin
+version's digest.py (the cache path changes on every update). Files without a
+block stay untouched, so the first publish still goes through memory-review.
+The SessionStart hook hooks/memory-publish.sh runs this.
 """
 import os, re, sys
 
@@ -77,16 +82,30 @@ def imports(path):
     return found
 
 
+def stale(paths):
+    """True when some block exists and at least one points at another digest.py."""
+    for p in paths:
+        p = os.path.expanduser(p)
+        m = PAT.search(open(p).read()) if os.path.exists(p) else None
+        if m and DIGEST not in m.group(0):
+            return True
+    return False
+
+
 def main():
     user = os.path.join(MEM, "USER.md")
     if not os.path.exists(user):
         sys.exit(f"{user} missing - run the memory-review skill first.")
 
+    targets = ["~/.codex/AGENTS.md"] + [t for t in os.environ.get("MEMORY_REVIEW_INLINE_TARGETS", "").split(":") if t]
+    if "--if-stale" in sys.argv[1:] and not stale(targets + ["~/.claude/CLAUDE.md"]):
+        print("unchanged (blocks already point at this plugin version)")
+        return
+
     text = open(user).read().strip()
     if len(text) > INLINE_CAP:
         text = text[:INLINE_CAP] + f"\n…[cut - full file: {MEM_TILDE}/USER.md]"
     inline = block(f"{text}\n\n{PROJECT_RULE}")
-    targets = ["~/.codex/AGENTS.md"] + [t for t in os.environ.get("MEMORY_REVIEW_INLINE_TARGETS", "").split(":") if t]
     written = set()
     for t in targets:
         real = os.path.realpath(os.path.expanduser(t))

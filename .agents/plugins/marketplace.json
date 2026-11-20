@@ -4,7 +4,7 @@
   "plugins": [
     {
       "name": "xbajci",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "description": "Personal agents, skills and guardrails on top of Matt Pocock's skills.",
       "author": { "name": "Martin Bajcar", "url": "https://github.com/xBajci" },
       "source": { "source": "local", "path": "./" },
